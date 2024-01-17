@@ -1,2 +1,4 @@
 /target
 Config.toml
+Cargo.lock
+.vscode

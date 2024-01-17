@@ -1,27 +1,70 @@
 use axum::{
-    routing::{get, post}, Router,
+    routing::{get, post},
+    Router,
 };
+use redis::RedisInstance;
 use std::io;
 use std::net::SocketAddr;
 use tracing::Level;
-
-mod ninja_handler;
+use tokio_cron_scheduler::{JobScheduler};
 mod models;
+mod ninja_handler;
+mod job_handler;
+mod redis;
+
+#[derive(Clone)]
+pub struct AppState {
+    scheduler: JobScheduler,
+    redis: RedisInstance,
+}
+
+impl AppState {
+    fn new(scheduler: JobScheduler, redis: RedisInstance) -> AppState {
+        AppState {
+            scheduler: scheduler,
+            redis: redis,
+        }
+    }
+}
+
 
 #[tokio::main]
 async fn main() {
-        // initialize tracing
-        tracing_subscriber::fmt()
+    // initialize tracing
+    tracing_subscriber::fmt()
         .with_max_level(Level::TRACE)
         .with_writer(io::stdout)
         .init();
 
+    // initialize redis
+    let redis = RedisInstance::new();
+
+    // initialize scheduler
+    let scheduler = JobScheduler::new().await;
+    match scheduler {
+        Ok(_) => {
+            tracing::info!("Scheduler initialized");
+        }
+        Err(e) => {
+            tracing::error!("Scheduler failed to initialize: {}", e);
+            panic!("Scheduler failed to initialize: {}", e);
+        }
+    }
+
+    // initialize app state
+    let app = AppState::new(scheduler.unwrap(), redis);
+
     // build our application with a route
     let app = Router::new()
-        // `GET /hb` goes to `handlers::hb`
+        // ninja handler
         .route("/hb", get(ninja_handler::hb))
-        // `POST /users` goes to `handlers::create_user`
-        .route("/data", get(ninja_handler::get_data_from_ninja));
+        .route("/ninja_data", get(ninja_handler::get_data_from_ninja))
+        .route("/filter_data", get(ninja_handler::get_filter_data))
+        .route("/add_filter", post(ninja_handler::add_data_filter))
+        // Job handler
+        .route("/job/active", post(job_handler::active_probe_job))
+        .route("/job/delete", post(job_handler::delete_probe_job))
+        .with_state(app);
 
     // run our app with hyper
     // `axum::Server` is a re-export of `hyper::Server`
@@ -32,4 +75,3 @@ async fn main() {
         .await
         .unwrap();
 }
-
