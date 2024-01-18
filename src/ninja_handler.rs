@@ -117,38 +117,17 @@ pub async fn add_data_filter(Json(payload): Json<AddFilterRequest>) -> (StatusCo
         }
     }
 }
+// 取得 Redis 中的 filterList
 pub async fn get_filter_data(
     query_params: Query<QueryParams>,
 ) -> (StatusCode, Json<Vec<DataStore>>) {
-    let mut redis_instance = get_redis_instance();
-    let redis_key = format!(
-        "{}:{}",
-        get_query_type(query_params.category.to_string()),
-        query_params.category
-    );
-    let res = redis_instance.get_list(redis_key.as_str());
-    match res {
-        Ok(_) => {
-            // Parse to DataStore
-            let mut data_list: Vec<DataStore> = Vec::new();
-            for data in res.unwrap() {
-                let data_json = serde_json::from_str::<DataStore>(&data);
-                match data_json {
-                    Ok(data_json) => {
-                        data_list.push(data_json);
-                    }
-                    Err(e) => {
-                        tracing::error!("Parse data error: {}", e);
-                        return (StatusCode::INTERNAL_SERVER_ERROR, Json(Vec::new()));
-                    }
-                }
-            }
-            return (StatusCode::OK, Json(data_list));
-        }
-        Err(e) => {
-            tracing::error!("Get filter data error: {}", e);
-            return (StatusCode::INTERNAL_SERVER_ERROR, Json(Vec::new()));
-        }
+    let data_list = get_current_data_list(query_params.category.as_str());
+    if data_list.len() != 0 {
+        return (StatusCode::OK, Json(data_list));
+    }
+    else {
+        tracing::info!("No data in Redis");
+        return (StatusCode::OK, Json(Vec::new()));
     }
 }
 
@@ -179,6 +158,8 @@ fn write_to_redis(main_category: String, category: String, query_res: QueryRespo
     // Initialize Redis
     let mut redis_instance = get_redis_instance();
     let mut data_list: Vec<String> = Vec::new();
+    let current_list = get_current_data_list(category.as_str());
+
     for line in query_res.lines {
         // Match the currency
         let redis_key = format!("{}:{}:filter", main_category, category);
@@ -211,6 +192,11 @@ fn write_to_redis(main_category: String, category: String, query_res: QueryRespo
                         pay_total_change,
                         receive_total_change,
                     );
+                    // If exist in current list skip
+                    if exist_in_list(&current_list, &data.currency) {
+                        tracing::info!("{} {} exists in current list", category, &data.currency);
+                        continue;
+                    }
                     data_list.push(data.to_json_string());
                 } else {
                     tracing::info!("{} {} not exists", category, redis_key);
@@ -244,9 +230,48 @@ fn get_redis_instance() -> RedisInstance {
     let redis_instance = RedisInstance::new();
     redis_instance
 }
+// Get current data list from Redis
+fn get_current_data_list(category: &str) -> Vec<DataStore> {
+    let mut redis_instance = get_redis_instance();
+    let redis_key = format!(
+        "{}:{}",
+        get_query_type(category.to_string()),
+        category
+    );
+    let res = redis_instance.get_list(redis_key.as_str());
+    match res {
+        Ok(_) => {
+            // Parse to DataStore
+            let mut data_list: Vec<DataStore> = Vec::new();
+            for data in res.unwrap() {
+                let data_json = serde_json::from_str::<DataStore>(&data);
+                match data_json {
+                    Ok(data_json) => {
+                        data_list.push(data_json);
+                    }
+                    Err(e) => {
+                        tracing::error!("Parse data error: {}", e);
+                        return Vec::new();
+                    }
+                }
+            }
+            return data_list;
+        }
+        Err(e) => {
+            tracing::error!("Get filter data error: {}", e);
+            return Vec::new();
+        }
+    }
+}
 
-fn get_current_data_list() {
-
+// Exist in list
+fn exist_in_list(list: &Vec<DataStore>, value: &String) -> bool {
+    for item in list.iter() {
+        if item.currency == value.to_string() {
+            return true;
+        }
+    }
+    false
 }
 
 // Tests

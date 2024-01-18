@@ -33,7 +33,7 @@ impl AppState {
 async fn main() {
     // initialize tracing
     tracing_subscriber::fmt()
-        .with_max_level(Level::TRACE)
+        .with_max_level(Level::DEBUG)
         .with_writer(io::stdout)
         .init();
 
