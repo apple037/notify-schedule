@@ -10,6 +10,7 @@ use tokio_cron_scheduler::{JobScheduler};
 mod models;
 mod ninja_handler;
 mod job_handler;
+mod discord;
 mod redis;
 
 #[derive(Clone)]

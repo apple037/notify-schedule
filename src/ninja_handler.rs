@@ -9,12 +9,7 @@ use crate::redis::RedisInstance;
 // Structs
 #[derive(Deserialize, Debug)]
 struct Config {
-    discord: Discord,
     ninja: Ninja,
-}
-#[derive(Deserialize, Debug)]
-struct Discord {
-    api_key: String,
 }
 #[derive(Deserialize, Debug)]
 struct Ninja {
@@ -25,6 +20,12 @@ struct Ninja {
 pub struct QueryParams {
     league: String,
     category: String,
+}
+
+impl QueryParams {
+    pub fn new(league: String, category: String) -> QueryParams {
+        QueryParams { league, category }
+    }
 }
 
 // Public functions
@@ -96,17 +97,17 @@ pub async fn add_data_filter(Json(payload): Json<AddFilterRequest>) -> (StatusCo
     let filter_type = payload.filter_type;
     let main_category = get_query_type(filter_type.to_string());
     let name = payload.name;
-    let redis_key = format!("{}:{}:{}", main_category, filter_type, name);
-    let existance = redis_instance.exists(redis_key.as_str());
+    let redis_key = format!("{}:{}:filter", main_category, filter_type);
+    let existance = redis_instance.exist_in_list(redis_key.as_str(), name.as_str());
     // if exist skip else add
     if existance.is_ok() && existance.unwrap() == true {
         tracing::info!("Filter {} already exists", redis_key);
         (StatusCode::OK, "Already exists")
     } else {
-        let res = redis_instance.set(redis_key.as_str(), "1");
+        let res = redis_instance.push_list(&redis_key, &name);
         match res {
             Ok(_) => {
-                tracing::info!("Filter {} added", redis_key);
+                tracing::info!("Filter {} {} added", redis_key, name);
                 (StatusCode::OK, "Ok!")
             }
             Err(e) => {
@@ -180,9 +181,9 @@ fn write_to_redis(main_category: String, category: String, query_res: QueryRespo
     let mut data_list: Vec<String> = Vec::new();
     for line in query_res.lines {
         // Match the currency
-        let redis_key = format!("{}:{}:{}", main_category, category, line.currencyTypeName);
+        let redis_key = format!("{}:{}:filter", main_category, category);
         // Check if the key exists
-        let existance = redis_instance.exists(redis_key.as_str());
+        let existance = redis_instance.exist_in_list(&redis_key, &line.currencyTypeName);
         // if exist update else skip
         match existance {
             Ok(existance) => {
@@ -242,6 +243,10 @@ fn write_to_redis(main_category: String, category: String, query_res: QueryRespo
 fn get_redis_instance() -> RedisInstance {
     let redis_instance = RedisInstance::new();
     redis_instance
+}
+
+fn get_current_data_list() {
+
 }
 
 // Tests

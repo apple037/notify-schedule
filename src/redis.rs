@@ -81,6 +81,12 @@ impl RedisInstance {
         self.connection.set(key, value)
     }
 
+    // set a value with expire to Redis
+    pub fn set_with_expire(&mut self, key: &str, value: &str, expire: u64) -> RedisResult<()> {
+        self.check_init()?;
+        self.connection.set_ex(key, value, expire)
+    }
+
     // set expire to Redis
     pub fn set_expire(&mut self, key: &str, expire: i64) -> RedisResult<()> {
         self.check_init()?;
@@ -117,10 +123,60 @@ impl RedisInstance {
         self.connection.expire(key, expire)
     }
 
+    // Push element to list
+    pub fn push_list(&mut self, key: &str, value: &str) -> RedisResult<()> {
+        self.check_init()?;
+        self.connection.rpush(key, value)
+    }
+
+    // remove element from list
+    pub fn remove_list(&mut self, key: &str, value: &str) -> RedisResult<()> {
+        self.check_init()?;
+        self.connection.lrem(key, 0, value)
+    }
+
     // get list from Redis
     pub fn get_list(&mut self, key: &str) -> RedisResult<Vec<String>> {
         self.check_init()?;
         self.connection.lrange(key, 0, -1)
+    }
+
+    // exist in list 
+    pub fn exist_in_list(&mut self, key: &str, value: &str) -> RedisResult<bool> {
+        self.check_init()?;
+        let list = self.connection.lrange(key, 0, -1);
+        let list:Vec<String> = match list {
+            Ok(list) => list,
+            Err(e) => {
+                tracing::error!("Redis execution error: {}", e);
+                return RedisResult::Ok(false);
+            }
+        };
+        for item in list.iter() {
+            if item == value {
+                return RedisResult::Ok(true);
+            }
+        }
+        RedisResult::Ok(false)
+    }
+
+    // push hash to redis
+    pub fn push_hash_expire(&mut self, key: &str, field: &str, value: &str, expire: i64) -> RedisResult<()> {
+        self.check_init()?;
+        self.connection.hset(key, field, value)?;
+        self.connection.expire(key, expire)
+    }
+
+    // get hash from redis
+    pub fn get_hash(&mut self, key: &str, field: &str) -> RedisResult<String> {
+        self.check_init()?;
+        self.connection.hget(key, field)
+    }
+
+    // remove hash from redis
+    pub fn remove_hash(&mut self, key: &str, field: &str) -> RedisResult<()> {
+        self.check_init()?;
+        self.connection.hdel(key, field)
     }
 }
 
