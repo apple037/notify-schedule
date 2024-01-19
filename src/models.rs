@@ -50,27 +50,97 @@ impl Clone for QueryResponse {
         }
     }
 }
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ItemQueryResponse {
+    pub lines: Vec<ItemLine>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ItemLine {
+    pub name: String,
+    pub chaosValue: f64,
+    pub divineValue: f64,
+    pub sparkline: Option<SparkLine>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SparkLine {
+    pub totalChange: f64,
+}
+
+impl ItemQueryResponse {
+    pub fn empty() -> ItemQueryResponse {
+        ItemQueryResponse { lines: Vec::new() }
+    }
+}
+
+impl Clone for ItemQueryResponse {
+    fn clone(&self) -> ItemQueryResponse {
+        ItemQueryResponse {
+            lines: self.lines.clone(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ApiResponse {
+    pub item_response: Option<ItemQueryResponse>,
+    pub currency_response: Option<QueryResponse>,
+}
+
+impl ApiResponse {
+    pub fn empty() -> ApiResponse {
+        ApiResponse {
+            item_response: None,
+            currency_response: None,
+        }
+    }
+
+    pub fn set_item_response(&mut self, item_response: ItemQueryResponse) {
+        self.item_response = Some(item_response);
+    }
+
+    pub fn set_currency_response(&mut self, currency_response: QueryResponse) {
+        self.currency_response = Some(currency_response);
+    }
+}
+
+impl Clone for ApiResponse {
+    fn clone(&self) -> ApiResponse {
+        ApiResponse {
+            item_response: self.item_response.clone(),
+            currency_response: self.currency_response.clone(),
+        }
+    }
+}
+
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct DataStore {
-    pub currency: String,
+    pub name: String,
     pub chaos_equivalent: f64,
+    pub divine_equivalent: f64,
     pub pay_total_change: f64,
     pub receive_total_change: f64,
+    pub update_time: String,
 }
 
 impl DataStore {
     pub fn new(
-        currency: String,
+        name: String,
         chaos_equivalent: f64,
+        divine_equivalent: f64,
         pay_total_change: f64,
         receive_total_change: f64,
+        update_time: String,
     ) -> DataStore {
         DataStore {
-            currency,
+            name,
             chaos_equivalent,
+            divine_equivalent,
             pay_total_change,
             receive_total_change,
+            update_time,
         }
     }
 

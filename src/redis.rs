@@ -178,6 +178,30 @@ impl RedisInstance {
         self.check_init()?;
         self.connection.hdel(key, field)
     }
+
+    // get all exists keys in specific layer from redis
+    pub fn get_all_keys(&mut self, key: &str) -> RedisResult<Vec<String>> {
+        self.check_init()?;
+        self.connection.keys(key)
+    }
+
+    // get all exists keys name in specific layer from redis
+    pub fn get_all_keys_name(&mut self, key: &str) -> RedisResult<Vec<String>> {
+        self.check_init()?;
+        let keys: Vec<String> = self.connection.keys(key)?;
+        let mut keys_name: Vec<String> = Vec::new();
+        let ori_key = key.replace("*", "");
+        for key in keys.iter() {
+            // Remove the first found original key from key
+            let key_name = key.replacen(&ori_key, "", 1);
+            println!("{}", &key_name);
+            // if it doesn't contain ":" put it into keys_name
+            if !key_name.contains(":") {
+                keys_name.push(key_name);
+            }
+        }
+        RedisResult::Ok(keys_name)
+    }
 }
 
 #[cfg(test)]
@@ -206,6 +230,10 @@ mod tests {
         );
         assert_eq!(res.is_ok(), true);
         let res = redis_instance.get_list(key);
+        println!("{:?}", res.ok());
+        let res = redis_instance.get_all_keys("Currency:*");
+        println!("{:?}", res.ok());
+        let res = redis_instance.get_all_keys_name("Currency:*");
         println!("{:?}", res.ok());
     }
 }

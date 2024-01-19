@@ -1,0 +1,16 @@
+
+league = "Affliction"
+[[currency]]
+name = "Currency"
+default = [
+    "Divine Orb",  
+    "Primal Crystallised Lifeforce",
+    "Wild Crystallised Lifeforce",
+    "Vivid Crystallised Lifeforce"
+]
+[[item]]
+name = "Essence"
+default = []
+[[item]]
+name = "Invitation"
+default = []

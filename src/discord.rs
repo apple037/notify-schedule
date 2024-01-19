@@ -56,5 +56,5 @@ fn get_config_from_toml() -> Discord {
 #[cfg(test)]
 #[tokio::test]
 async fn test_send_message_to_channel() {
-    send_message_to_channel("Fuck you".to_string()).await;
+    send_message_to_channel("~~Fuck you~~".to_string()).await;
 }

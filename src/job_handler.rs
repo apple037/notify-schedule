@@ -1,10 +1,10 @@
 use axum::{extract::{Query,State}, response::IntoResponse};
-use reqwest::StatusCode;
 use tokio_cron_scheduler::Job;
 use uuid::Uuid;
 
-use crate::ninja_handler::{QueryParams,get_data_from_ninja};
+use crate::ninja_handler::{QueryParams,get_data_from_ninja, self};
 use crate::AppState;
+use crate::discord::send_message_to_channel;
 
 // Public functions
 // 排程 啟動!
@@ -13,8 +13,9 @@ pub async fn active_probe_job(State(state): State<AppState>) -> impl IntoRespons
     let scheduler = state.scheduler.clone();
     // Add job
     let add = scheduler.add(
-        Job::new("0 0 * * * *", |_uuid, _l| {
+        Job::new("0 * * * * *", |_uuid, _l| {
             tracing::info!("Job running every hour");
+            // TODO the refresh data should be in a loop
             // Refresh currency data
             let query_params = QueryParams::new("Affliction".to_string(), "Currency".to_string());
             tracing::info!("Query params: {:?}", query_params);
@@ -25,6 +26,19 @@ pub async fn active_probe_job(State(state): State<AppState>) -> impl IntoRespons
             let query_params = QueryParams::new("Affliction".to_string(), "Essence".to_string());
             let _ = tokio::spawn(async {
                 let _ = get_data_from_ninja(Query(query_params)).await;
+            });
+            // Refresh inivitation data
+            let query_params = QueryParams::new("Affliction".to_string(), "Invitation".to_string());
+            let _ = tokio::spawn(async {
+                let _ = get_data_from_ninja(Query(query_params)).await;
+            });
+            println!("030");
+            // Get the output data from redis
+            let output = ninja_handler::get_format_output();
+            tracing::debug!("Output: {:?}", output);
+            // Send the output data to discord
+            let _ = tokio::spawn(async {
+                let _ = send_message_to_channel(output).await;
             });
         }).expect("Failed to create job"),
     ).await;

@@ -12,6 +12,7 @@ mod ninja_handler;
 mod job_handler;
 mod discord;
 mod redis;
+mod init;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -52,6 +53,9 @@ async fn main() {
         }
     }
 
+    // initialize data
+    init::init_data(&redis).await;
+
     // initialize app state
     let app = AppState::new(scheduler.unwrap(), redis);
 
@@ -62,6 +66,7 @@ async fn main() {
         .route("/ninja_data", get(ninja_handler::get_data_from_ninja))
         .route("/filter_data", get(ninja_handler::get_filter_data))
         .route("/add_filter", post(ninja_handler::add_data_filter))
+        .route("/add_skip_check", post(ninja_handler::add_skip_check))
         // Job handler
         .route("/job/active", post(job_handler::active_probe_job))
         .route("/job/delete", post(job_handler::delete_probe_job))
