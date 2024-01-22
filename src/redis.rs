@@ -190,15 +190,15 @@ impl RedisInstance {
         self.check_init()?;
         let keys: Vec<String> = self.connection.keys(key)?;
         let mut keys_name: Vec<String> = Vec::new();
-        let ori_key = key.replace("*", "");
+        // calculate the number of layers in key
+        let key_layer = key.split(":").collect::<Vec<&str>>().len();
         for key in keys.iter() {
-            // Remove the first found original key from key
-            let key_name = key.replacen(&ori_key, "", 1);
-            println!("{}", &key_name);
-            // if it doesn't contain ":" put it into keys_name
-            if !key_name.contains(":") {
-                keys_name.push(key_name);
+            let key = key.split(":").collect::<Vec<&str>>();
+            if key.len() < key_layer {
+                continue;
             }
+            let key = key[key_layer - 1];
+            keys_name.push(String::from(key));
         }
         RedisResult::Ok(keys_name)
     }
@@ -233,7 +233,7 @@ mod tests {
         println!("{:?}", res.ok());
         let res = redis_instance.get_all_keys("Currency:*");
         println!("{:?}", res.ok());
-        let res = redis_instance.get_all_keys_name("Currency:*");
+        let res = redis_instance.get_all_keys_name("Data:*");
         println!("{:?}", res.ok());
     }
 }

@@ -7,6 +7,7 @@ use std::io;
 use std::net::SocketAddr;
 use tracing::Level;
 use tokio_cron_scheduler::{JobScheduler};
+use std::env;
 mod models;
 mod ninja_handler;
 mod job_handler;
@@ -55,6 +56,8 @@ async fn main() {
 
     // initialize data
     init::init_data(&redis).await;
+    // before start refresh data
+    init::init_call_before_start().await;
 
     // initialize app state
     let app = AppState::new(scheduler.unwrap(), redis);

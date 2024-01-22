@@ -3,7 +3,7 @@ use axum::extract::Query;
 use axum::http::StatusCode;
 use axum::Json;
 use serde_derive::Deserialize;
-use crate::ninja_handler::{request_data_from_ninja,QueryParams};
+use crate::ninja_handler::{request_data_from_ninja,QueryParams,get_data_from_ninja};
 use crate::models::QueryResponse;
 #[derive(Deserialize, Debug)]
 struct InitData {
@@ -74,6 +74,28 @@ pub async fn init_data(redis: &RedisInstance) {
         }
     }
     tracing::info!("Init data done");
+}
+
+pub async fn init_call_before_start() {
+    // Call get ninja data before start the server
+    let init_data = std::fs::read_to_string("default.toml").expect("Unable to read default file");
+    let init_data: InitData = toml::from_str(&init_data).unwrap();
+    let league = init_data.league;
+    for currency in init_data.currency {
+        let query_params = QueryParams::new(league.clone(), currency.name);
+        tracing::debug!("Init call with query params: {:?}", query_params);
+        let _ = tokio::spawn(async {
+            let _ = get_data_from_ninja(Query(query_params)).await;
+        });
+    }
+    for item in init_data.item {
+        let query_params = QueryParams::new(league.clone(), item.name);
+        tracing::debug!("Init call with query params: {:?}", query_params);
+        let _ = tokio::spawn(async {
+            let _ = get_data_from_ninja(Query(query_params)).await;
+        });
+    }
+    tracing::info!("Call get ninja data before start the server done");
 }
 
 #[cfg(test)]

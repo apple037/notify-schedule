@@ -131,21 +131,25 @@ pub async fn add_skip_check(Json(payload): Json<AddFilterRequest>) -> (StatusCod
     }
 }
 // Get the filterList and format to the output format
-pub fn get_format_output() -> String {
-    let currency_list = get_all_category("Currency:*");
-    let item_list = get_all_category("Item:*");
+pub fn get_format_output(category: &str) -> String {
+    let currency_list = get_all_category("Data:Currency:*");
+    let item_list = get_all_category("Data:Item:*");
     // Format the output to Discord
     let mut output = String::new();
-    // Currency header
-    output.push_str("# Currency\n");
-    // Build the currency table
-    for c in currency_list.iter() {
-        build_output_str(&mut output, &c);
+    if category == "Currency" {
+        // Currency header
+        output.push_str("# Currency\n");
+        // Build the currency table
+        for c in currency_list.iter() {
+            build_output_str(&mut output, &c);
+        }
     }
-    // Item header
-    output.push_str("# Item\n");
-    for i in item_list.iter() {
-        build_output_str(&mut output, &i);
+    else {
+        // Item header
+        output.push_str("# Item\n");
+        for i in item_list.iter() {
+            build_output_str(&mut output, &i);
+        }
     }
     output
 }
@@ -284,7 +288,7 @@ fn write_to_redis(league: &str, main_category: &str, category: &str, query_res: 
         return;
     }
     // Write to Redis
-    let redis_key = format!("{}:{}", main_category, category);
+    let redis_key = format!("Data:{}:{}", main_category, category);
     // Remove all first
     let _ = redis_instance.delete(&redis_key);
     let res = redis_instance.set_list_expire(redis_key.as_str(), &data_list, 3600);
@@ -327,9 +331,10 @@ fn parse_data_line_to_datastore(league: &str, line: Line, redis_key: &str, redis
     );
     if data.name == "Divine Orb" {
         // delete first 
-        let _ = redis_instance.delete("Currency:D2C");
-        let _ = redis_instance.push_hash_expire(&format!("Currency:D2C"),"ratio", &data.chaos_equivalent.to_string(), 3600);
-        let _ = redis_instance.push_hash_expire(&format!("Currency:D2C"),"update_time", &chrono::offset::Utc::now().to_string(), 3600);
+        let d2c_key = format!("{}:D2C", &league);
+        let _ = redis_instance.delete(&d2c_key);
+        let _ = redis_instance.push_hash_expire(&d2c_key,"ratio", &data.chaos_equivalent.to_string(), 3600);
+        let _ = redis_instance.push_hash_expire(&d2c_key,"update_time", &chrono::offset::Utc::now().to_string(), 3600);
     }
     data
 }
@@ -395,7 +400,7 @@ fn write_to_redis_item(league: &str, main_category: &str, category: &str, query_
         }
     }
     // Write to Redis
-    let redis_key = format!("{}:{}", main_category, category);
+    let redis_key = format!("Data:{}:{}", main_category, category);
     // Remove all first
     let _ = redis_instance.delete(&redis_key);
     let res = redis_instance.set_list_expire(redis_key.as_str(), &data_list, 3600);
@@ -442,7 +447,7 @@ fn get_redis_instance() -> RedisInstance {
 fn get_current_data_list(category: &str) -> Vec<DataStore> {
     let mut redis_instance = get_redis_instance();
     let redis_key = format!(
-        "{}:{}",
+        "Data:{}:{}",
         get_query_type(category.to_string()),
         category
     );
@@ -511,13 +516,19 @@ fn get_all_category(key: &str) -> Vec<String> {
 // Build the output string
 fn build_output_str(output: &mut String, category: &str) {
     let data_list = get_current_data_list(category);
+
     // Markdown header
-    output.push_str(format!("## {}\n", category).as_str());
-    output.push_str("| name | Chaos Equivalent | Pay Total Change | Receive Total Change |\n");
-    output.push_str("| --- | --- | --- | --- |\n");
+    output.push_str(format!("## **{}**\n", category).as_str());
     for data in data_list.iter() {
+        // if pay and recieve change avg > 5.0 add emoji 🤨 and <-5.0 🫠 instead
+        let emoji = match (data.pay_total_change + data.receive_total_change) / 2.0 {
+            avg_change if avg_change > 5.0 => "🤨",
+            avg_change if avg_change < -5.0 => "🫠",
+            _ => "",
+        };
         output.push_str(&format!(
-            "| {} | {} | {} | {} |\n",
+            "- {}**{}:**\n  - Chaos: {}\n  - Pay Change: {}\n  - Receive Change: {}\n",
+            emoji,
             data.name,
             data.chaos_equivalent,
             data.pay_total_change,
@@ -525,6 +536,7 @@ fn build_output_str(output: &mut String, category: &str) {
         ));
     }
 }
+
 // Get divine to chaos ratio
 fn get_divine_to_chaos_ratio(league: &str, redis: &mut RedisInstance) -> f64 {
     let divine_to_chaos = redis.get_hash(format!("{}:D2C", league).as_str(), "ratio");
@@ -549,7 +561,7 @@ async fn test_get_data_from_ninja() {
     let query_params = QueryParams { league, category };
     let (status, response) = get_data_from_ninja(Query(query_params)).await;
     assert_eq!(status, StatusCode::OK);
-    let output = get_format_output();
+    let output = get_format_output("Currency");
 
     assert_ne!(output, "");
 }
