@@ -1,10 +1,9 @@
-use crate::redis::RedisInstance;
 use axum::extract::Query;
-use axum::http::StatusCode;
-use axum::Json;
-use serde_derive::Deserialize;
+use serde_derive::{Deserialize,Serialize};
+
+use crate::get_profile;
+use crate::redis::RedisInstance;
 use crate::ninja_handler::{request_data_from_ninja,QueryParams,get_data_from_ninja};
-use crate::models::QueryResponse;
 #[derive(Deserialize, Debug)]
 struct InitData {
     league: String,
@@ -16,16 +15,62 @@ struct DefaultData {
     name: String,
     default: Vec<String>,
 }
-#[derive(Deserialize, Debug)]
-struct Config {
-    ninja: Ninja,
+#[derive(Deserialize, Serialize, Debug)]
+pub struct Config {
+    pub ninja: Ninja,
+    pub redis: RedisConfig,
 }
-#[derive(Deserialize, Debug)]
-struct Ninja {
-    currency: String,
-    item: String,
+#[derive(Deserialize, Serialize, Debug)]
+pub struct Ninja {
+    pub currency: String,
+    pub item: String,
+}
+// Define a struct to hold our Redis configuration values
+#[derive(Deserialize, Serialize, Debug)]
+pub struct RedisConfig {
+    pub host: String,
+    pub port: u16,
+    pub db: u8,
+    pub password: Option<String>,
 }
 
+
+impl Config {
+    pub fn to_json_string(&self) -> String {
+        let json_string = serde_json::to_string(&self).unwrap();
+        json_string
+    }
+}
+
+pub async fn init_config(profile: &str, redis: &RedisInstance) {
+    // Get config file
+    let config_name = format!("Config_{}.toml", profile);
+    let config_value: String =
+        std::fs::read_to_string(&config_name).expect("Unable to read config file");
+    let config: Config = toml::from_str(&config_value).unwrap();
+    let mut redis = redis.clone();
+    let _ = redis.set(&format!("Config"), &config.to_json_string());
+    tracing::info!("Init config done");
+}
+
+pub async fn get_config(profile: &str) -> Config {
+    let mut redis = RedisInstance::new(&profile);
+    if redis.exists(&format!("Config")).unwrap() == false {
+        init_config(profile, &redis).await;
+    }
+    let config_string = redis.get(&format!("Config")).unwrap();
+    let config: Config = serde_json::from_str(&config_string).unwrap();
+    config
+}
+
+pub fn get_redis_config(profile: &str) -> RedisConfig {
+    // Get config file
+    let config_name = format!("Config_{}.toml", profile);
+    let config_value: String =
+        std::fs::read_to_string(&config_name).expect("Unable to read config file");
+    let config: Config = toml::from_str(&config_value).unwrap();
+    config.redis
+}
 
 pub async fn init_data(redis: &RedisInstance) {
     // Get initial data from default.toml
@@ -101,6 +146,6 @@ pub async fn init_call_before_start() {
 #[cfg(test)]
 #[tokio::test]
 async fn test_get_init_data() {
-    let redis = RedisInstance::new();
+    let redis = RedisInstance::new("local");
     init_data(&redis).await;
 }

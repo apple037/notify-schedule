@@ -4,7 +4,7 @@ use uuid::Uuid;
 use std::collections::HashMap;
 use serde_derive::Deserialize;
 
-use crate::ninja_handler::{QueryParams,get_data_from_ninja, self};
+use crate::{get_profile, ninja_handler::{QueryParams,get_data_from_ninja, self}};
 use crate::AppState;
 use crate::discord::send_message_to_channel;
 
@@ -24,6 +24,7 @@ pub async fn active_probe_job(State(state): State<AppState>) -> impl IntoRespons
     // using app state
     let scheduler = state.scheduler.clone();
 
+
     // Add job
     let add = scheduler.add(
         Job::new("0 * * * * *", |_uuid, _l| {
@@ -31,6 +32,8 @@ pub async fn active_probe_job(State(state): State<AppState>) -> impl IntoRespons
             let init_data = std::fs::read_to_string("default.toml").expect("Unable to read default file");
             let init_data: InitData = toml::from_str(&init_data).unwrap();
             tracing::info!("Job running every hour");
+            // Get the profile
+            let profile = get_profile();
             // Get the refresh key map
             let refresh_key_map = get_the_refresh_key_map();
             tracing::debug!("Refresh key map: {:?}", refresh_key_map);
@@ -46,7 +49,7 @@ pub async fn active_probe_job(State(state): State<AppState>) -> impl IntoRespons
                     });
                 }
                 // Get the output data from redis
-                let output = ninja_handler::get_format_output(&main_type);
+                let output = ninja_handler::get_format_output(&main_type, &profile);
                 // tracing::debug!("Output: {:?}", output);
                 // Send the output data to discord
                 let _ = tokio::spawn(async {
@@ -112,7 +115,8 @@ pub async fn delete_probe_job(State(state): State<AppState>) -> impl IntoRespons
 // Private functions
 fn get_the_refresh_key_map() -> HashMap<String, Vec<String>> {
     let mut refresh_key_map = HashMap::new();
-    let mut redis_instance = crate::redis::RedisInstance::new();
+    let profile = get_profile();
+    let mut redis_instance = crate::redis::RedisInstance::new(&profile);
     let main_type_list = redis_instance.get_all_keys_name("Data:*");
     let main_type_list = main_type_list.unwrap();
     println!("Main type list: {:?}", main_type_list);

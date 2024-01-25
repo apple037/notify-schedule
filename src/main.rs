@@ -1,13 +1,15 @@
 use axum::{
     routing::{get, post},
-    Router,
+    Router
 };
-use redis::RedisInstance;
+
+use crate::redis::RedisInstance;
 use std::io;
 use std::net::SocketAddr;
 use tracing::Level;
-use tokio_cron_scheduler::{JobScheduler};
+use tokio_cron_scheduler::JobScheduler;
 use std::env;
+
 mod models;
 mod ninja_handler;
 mod job_handler;
@@ -19,28 +21,57 @@ mod init;
 pub struct AppState {
     scheduler: JobScheduler,
     redis: RedisInstance,
+    proflie: String,
 }
 
+
 impl AppState {
-    fn new(scheduler: JobScheduler, redis: RedisInstance) -> AppState {
+    fn new(scheduler: JobScheduler, redis: RedisInstance, profile: String) -> AppState {
         AppState {
             scheduler: scheduler,
             redis: redis,
+            proflie: profile,
         }
     }
 }
-
+// get the profile from args
+pub fn get_profile() -> String {
+    // get the input args
+    let args: Vec<String> = env::args().collect();
+    let profile;
+    if args.len() != 2 {
+        tracing::debug!("No args found! Use default");
+        profile = String::from("local");
+    }
+    else {
+        // check arg name is profile
+        if args[0] != "profile" {
+            tracing::debug!("No args found! Use default");
+            profile = String::from("local");
+        }
+        else {
+            profile = args[1].clone();
+        }
+    }
+    tracing::debug!("Profile: {}", profile);
+    println!("Profile: {}", profile);
+    profile
+} 
 
 #[tokio::main]
 async fn main() {
+
+
     // initialize tracing
     tracing_subscriber::fmt()
         .with_max_level(Level::DEBUG)
         .with_writer(io::stdout)
         .init();
 
+    let profile = get_profile();
+
     // initialize redis
-    let redis = RedisInstance::new();
+    let redis = RedisInstance::new(&profile);
 
     // initialize scheduler
     let scheduler = JobScheduler::new().await;
@@ -54,13 +85,15 @@ async fn main() {
         }
     }
 
+    // initialize config
+    init::init_config(&profile, &redis).await;
     // initialize data
     init::init_data(&redis).await;
     // before start refresh data
     init::init_call_before_start().await;
 
     // initialize app state
-    let app = AppState::new(scheduler.unwrap(), redis);
+    let app = AppState::new(scheduler.unwrap(), redis, profile);
 
     // build our application with a route
     let app = Router::new()

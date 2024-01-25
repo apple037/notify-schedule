@@ -1,58 +1,40 @@
 use redis::{Client, Commands, Connection, RedisResult};
 use serde_derive::Deserialize;
-// Define a struct to hold our configuration values
-#[derive(Deserialize)]
-pub struct Config {
-    pub redis: RedisConfig,
-}
-// Define a struct to hold our Redis configuration values
-#[derive(Deserialize)]
-pub struct RedisConfig {
-    pub host: String,
-    pub port: u16,
-    pub db: u8,
-    pub password: Option<String>,
-}
 
-// Read config file
-fn read_config() -> Config {
-    let config_value: String =
-        std::fs::read_to_string("Config.toml").expect("Unable to read config file");
-    let config: Config = toml::from_str(&config_value).expect("Unable to parse config file");
-    config
-}
+use crate::get_profile;
+use crate::init::{get_redis_config, Config};
+
 
 // Define a struct to hold Redis
 pub struct RedisInstance {
-    pub config: Config,
     pub connection: Connection,
     init: bool,
+    pub profile: String,
 }
 
 impl Clone for RedisInstance {
     fn clone(&self) -> RedisInstance {
-        let instance = RedisInstance::new();
-        instance
+        RedisInstance::new(self.profile.as_str())
     }
 }
 
 // Implement RedisInstance
 impl RedisInstance {
     // new a RedisInstance struct and connect to Redis
-    pub fn new() -> RedisInstance {
-        let config = read_config();
+    pub fn new(profile: &str) -> RedisInstance {
+        let redis_config = get_redis_config(&profile);
         let connection_str = format!(
             "redis://{}:{}/{}",
-            config.redis.host, config.redis.port, config.redis.db
+            redis_config.host, redis_config.port, redis_config.db
         );
         let connection = Client::open(connection_str.as_str())
             .expect("Unable to open Redis connection")
             .get_connection()
             .expect("Unable to get Redis connection");
         RedisInstance {
-            config,
             connection,
             init: true,
+            profile: String::from(profile),
         }
     }
 
@@ -209,7 +191,7 @@ mod tests {
     use super::*;
     #[test]
     fn test_redis() {
-        let mut redis_instance = RedisInstance::new();
+        let mut redis_instance = RedisInstance::new("local");
         let key = "test";
         let value = "test";
         // let res = redis_instance.set(key, value);

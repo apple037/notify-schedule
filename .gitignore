@@ -1,5 +1,5 @@
 /target
-Config.toml
+Config_*.toml
 Cargo.lock
 .vscode
 Cargo.lock

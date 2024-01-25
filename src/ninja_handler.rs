@@ -1,21 +1,13 @@
-use axum::{debug_handler, extract::Query, http::StatusCode, response::IntoResponse, Json};
+use axum::{debug_handler, extract::{Query,State}, http::StatusCode, response::IntoResponse, Json};
 use reqwest;
 use serde_derive::Deserialize;
 use serde_json::json;
 
 use crate::models::{AddFilterRequest, DataStore, Line, ItemLine, QueryResponse, ItemQueryResponse, ApiResponse, self};
 use crate::redis::RedisInstance;
-
+use crate::init::{get_config, Config};
+use crate::get_profile;
 // Structs
-#[derive(Deserialize, Debug)]
-struct Config {
-    ninja: Ninja,
-}
-#[derive(Deserialize, Debug)]
-struct Ninja {
-    currency: String,
-    item: String,
-}
 #[derive(Deserialize, Debug)]
 pub struct QueryParams {
     league: String,
@@ -36,7 +28,7 @@ pub async fn hb() -> impl IntoResponse {
 
 // Get data from ninja
 pub async fn get_data_from_ninja(
-    query_params: Query<QueryParams>,
+    query_params: Query<QueryParams>
 ) -> (StatusCode, Json<ApiResponse>) {
     // Trace the request
     tracing::info!(
@@ -44,6 +36,7 @@ pub async fn get_data_from_ninja(
         query_params.league,
         query_params.category
     );
+    let profile = get_profile();
     // Build the request
     let api_response = request_data_from_ninja(
         query_params.league.as_str(),
@@ -54,13 +47,13 @@ pub async fn get_data_from_ninja(
     match main_category.as_str() {
         "Currency" => {
             if let Some(currency_response) = &api_response.currency_response {
-                write_to_redis(query_params.league.as_str(), &main_category, &query_params.category.to_string(), currency_response);
+                write_to_redis(query_params.league.as_str(), &main_category, &query_params.category.to_string(), currency_response, profile.as_str());
             }
             return (StatusCode::OK, Json(api_response));
         }
         _ => {
             if let Some(item_response) = &api_response.item_response {
-                write_to_redis_item(query_params.league.as_str(), main_category.as_str(), query_params.category.as_str(), item_response);
+                write_to_redis_item(query_params.league.as_str(), main_category.as_str(), query_params.category.as_str(), item_response, profile.as_str());
             }
             return (StatusCode::OK, Json(api_response));
         }
@@ -69,7 +62,8 @@ pub async fn get_data_from_ninja(
 
 // Add a dataFilter and return the filterList
 pub async fn add_data_filter(Json(payload): Json<AddFilterRequest>) -> (StatusCode, &'static str) {
-    let mut redis_instance = get_redis_instance();
+    let profile = get_profile();
+    let mut redis_instance = get_redis_instance(profile.as_str());
     let filter_type = payload.filter_type;
     let main_category = get_query_type(filter_type.to_string());
     let name = payload.name;
@@ -97,7 +91,8 @@ pub async fn add_data_filter(Json(payload): Json<AddFilterRequest>) -> (StatusCo
 pub async fn get_filter_data(
     query_params: Query<QueryParams>,
 ) -> (StatusCode, Json<Vec<DataStore>>) {
-    let data_list = get_current_data_list(query_params.category.as_str());
+    let profile = get_profile();
+    let data_list = get_current_data_list(query_params.category.as_str(), profile.as_str());
     if data_list.len() != 0 {
         return (StatusCode::OK, Json(data_list));
     }
@@ -108,7 +103,8 @@ pub async fn get_filter_data(
 }
 // Add a skip check 
 pub async fn add_skip_check(Json(payload): Json<AddFilterRequest>) -> (StatusCode, &'static str) {
-    let mut redis_instance = get_redis_instance();
+    let profile = get_profile();
+    let mut redis_instance = get_redis_instance(&profile);
     // check if exists in list
     let skip_key = format!("{}:skip", payload.filter_type);
     let existance = redis_instance.exist_in_list(skip_key.as_str(), payload.name.as_str());
@@ -131,9 +127,9 @@ pub async fn add_skip_check(Json(payload): Json<AddFilterRequest>) -> (StatusCod
     }
 }
 // Get the filterList and format to the output format
-pub fn get_format_output(category: &str) -> String {
-    let currency_list = get_all_category("Data:Currency:*");
-    let item_list = get_all_category("Data:Item:*");
+pub fn get_format_output(category: &str, profile: &str) -> String {
+    let currency_list = get_all_category("Data:Currency:*", &profile);
+    let item_list = get_all_category("Data:Item:*", &profile);
     // Format the output to Discord
     let mut output = String::new();
     if category == "Currency" {
@@ -141,14 +137,14 @@ pub fn get_format_output(category: &str) -> String {
         output.push_str("# Currency\n");
         // Build the currency table
         for c in currency_list.iter() {
-            build_output_str(&mut output, &c);
+            build_output_str(&mut output, &c, &profile);
         }
     }
     else {
         // Item header
         output.push_str("# Item\n");
         for i in item_list.iter() {
-            build_output_str(&mut output, &i);
+            build_output_str(&mut output, &i, &profile);
         }
     }
     output
@@ -161,7 +157,7 @@ pub async fn request_data_from_ninja(league: &str, category: &str) -> ApiRespons
     let main_category = get_query_type(category.to_string());
     let url = format!(
         "{}?league={}&type={}",
-        get_base_url_from_toml(category.to_string()),
+        get_base_url_from_toml(category.to_string()).await,
         league,
         category
     );
@@ -216,11 +212,9 @@ fn get_query_type(category: String) -> String {
     .to_string()
 }
 
-fn get_base_url_from_toml(category: String) -> String {
-    let config_value: String =
-        std::fs::read_to_string("Config.toml").expect("Unable to read config file");
-    let config: Config = toml::from_str(&config_value).unwrap();
-    tracing::debug!("Config: {:?}", config);
+async fn get_base_url_from_toml(category: String) -> String {
+    let profile = get_profile();
+    let config: Config = get_config(&profile).await;
     match category.as_str() {
         "Currency" => config.ninja.currency,
         "Fragment" => config.ninja.currency,
@@ -229,11 +223,11 @@ fn get_base_url_from_toml(category: String) -> String {
 }
 
 // Store the query data to redis
-fn write_to_redis(league: &str, main_category: &str, category: &str, query_res: &QueryResponse) {
+fn write_to_redis(league: &str, main_category: &str, category: &str, query_res: &QueryResponse, profile: &str) {
     // Initialize Redis
-    let mut redis_instance = get_redis_instance();
+    let mut redis_instance = get_redis_instance(&profile);
     let mut data_list: Vec<String> = Vec::new();
-    let mut current_list = get_current_data_list(category);
+    let mut current_list = get_current_data_list(category, &profile);
     let query_res = query_res.clone();
     for line in query_res.lines {
         // Match the currency
@@ -340,10 +334,10 @@ fn parse_data_line_to_datastore(league: &str, line: Line, redis_key: &str, redis
 }
 
 // write to Redis item flow
-fn write_to_redis_item(league: &str, main_category: &str, category: &str, query_res: &ItemQueryResponse) {
-    let mut redis_instance = get_redis_instance();
+fn write_to_redis_item(league: &str, main_category: &str, category: &str, query_res: &ItemQueryResponse, profile: &str) {
+    let mut redis_instance = get_redis_instance(&profile);
     let mut data_list: Vec<String> = Vec::new();
-    let mut current_list = get_current_data_list(category);
+    let mut current_list = get_current_data_list(category, &profile);
     let query_res = query_res.clone();
     for line in query_res.lines {
         // Match the currency
@@ -439,13 +433,13 @@ fn parse_data_line_to_datastore_item(league: &str, line: ItemLine, redis_key: &s
 }
 
 // Get Redis instance
-fn get_redis_instance() -> RedisInstance {
-    let redis_instance = RedisInstance::new();
+fn get_redis_instance(profile: &str) -> RedisInstance {
+    let redis_instance = RedisInstance::new(profile);
     redis_instance
 }
 // Get current data list from Redis
-fn get_current_data_list(category: &str) -> Vec<DataStore> {
-    let mut redis_instance = get_redis_instance();
+fn get_current_data_list(category: &str, profile: &str) -> Vec<DataStore> {
+    let mut redis_instance = get_redis_instance(profile);
     let redis_key = format!(
         "Data:{}:{}",
         get_query_type(category.to_string()),
@@ -500,8 +494,8 @@ fn pop_by_name(list: &mut Vec<DataStore>, value: &String) {
 }
 
 // Get all category from Redis
-fn get_all_category(key: &str) -> Vec<String> {
-    let mut redis_instance = get_redis_instance();
+fn get_all_category(key: &str, profile: &str) -> Vec<String> {
+    let mut redis_instance = get_redis_instance(&profile);
     let category_list = redis_instance.get_all_keys_name(key);
     match category_list {
         Ok(category_list) => {
@@ -514,8 +508,8 @@ fn get_all_category(key: &str) -> Vec<String> {
     }
 }
 // Build the output string
-fn build_output_str(output: &mut String, category: &str) {
-    let data_list = get_current_data_list(category);
+fn build_output_str(output: &mut String, category: &str, profile: &str) {
+    let data_list = get_current_data_list(category,profile);
 
     // Markdown header
     output.push_str(format!("## **{}**\n", category).as_str());
@@ -561,7 +555,7 @@ async fn test_get_data_from_ninja() {
     let query_params = QueryParams { league, category };
     let (status, response) = get_data_from_ninja(Query(query_params)).await;
     assert_eq!(status, StatusCode::OK);
-    let output = get_format_output("Currency");
+    let output = get_format_output("Currency", "local");
 
     assert_ne!(output, "");
 }
